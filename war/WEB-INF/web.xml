@@ -5,11 +5,11 @@ xmlns:web="http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
 xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
 http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd" version="2.5">
 	<servlet>
-		<servlet-name>IDmRegistory</servlet-name>
-		<servlet-class>org.qrone.idm.registry.IDmRegistoryServlet</servlet-class>
+		<servlet-name>JSONDatastore</servlet-name>
+		<servlet-class>org.qrone.jsondatastore.JSONDatastoreServlet</servlet-class>
 	</servlet>
 	<servlet-mapping>
-		<servlet-name>IDmRegistory</servlet-name>
+		<servlet-name>JSONDatastore</servlet-name>
 		<url-pattern>/</url-pattern>
 	</servlet-mapping>
 	

@@ -1,4 +1,4 @@
-package org.qrone.idm.registry;
+package org.qrone.jsondatastore;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -25,7 +25,7 @@ import com.google.appengine.api.datastore.Query.FilterOperator;
 import com.google.appengine.api.datastore.QueryResultIterable;
 
 @SuppressWarnings("serial")
-public class JSONRegistoryServlet extends HttpServlet {
+public class JSONDatastoreServlet extends HttpServlet {
 	public static DatastoreService store
 		= DatastoreServiceFactory.getDatastoreService();
 	
@@ -135,11 +135,11 @@ public class JSONRegistoryServlet extends HttpServlet {
 			e.setProperty(".user", name);
 			e.setProperty(".timestamp", System.currentTimeMillis() / 1000);
 			
-			String[] keys = json.getNames(json);
+			String[] keys = JSONObject.getNames(json);
 			for (int i = 0; i < keys.length; i++) {
 				String key = keys[i];
 				if(key.indexOf('.') < 0 && !key.equals("id")){
-					Object o = encode(data);
+					Object o = encode(json.get(key));
 					if(o != null)
 						e.setProperty(keys[i], o);
 				}

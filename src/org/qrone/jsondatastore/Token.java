@@ -1,4 +1,4 @@
-package org.qrone.idm.registry;
+package org.qrone.jsondatastore;
 
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
