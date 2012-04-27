@@ -11,6 +11,8 @@ import javax.servlet.http.*;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.qrone.util.Stream;
+import org.qrone.util.Token;
 
 import com.google.appengine.api.datastore.DatastoreService;
 import com.google.appengine.api.datastore.DatastoreServiceFactory;
@@ -333,7 +335,7 @@ public class JSONDatastoreServlet extends HttpServlet {
 		path = path.substring(idx);
 		
 		if(path.equals("/add")){
-			String content = new String(QrONEUtils.read(req.getInputStream()));
+			String content = new String(Stream.read(req.getInputStream()));
 			Entity e = fromJSONtoEntity(kind, auth.getId(), content);
 			if(e != null){
 				store.put(e);
