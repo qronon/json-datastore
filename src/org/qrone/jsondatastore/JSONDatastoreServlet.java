@@ -3,6 +3,7 @@ package org.qrone.jsondatastore;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Writer;
+import java.nio.channels.Channels;
 import java.util.Iterator;
 import java.util.Map;
 
@@ -11,6 +12,7 @@ import javax.servlet.http.*;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.qrone.util.Hex;
 import org.qrone.util.Stream;
 import org.qrone.util.Token;
 
@@ -25,11 +27,16 @@ import com.google.appengine.api.datastore.Query;
 import com.google.appengine.api.datastore.QueryResultIterator;
 import com.google.appengine.api.datastore.Query.FilterOperator;
 import com.google.appengine.api.datastore.QueryResultIterable;
+import com.google.appengine.api.files.AppEngineFile;
+import com.google.appengine.api.files.FileService;
+import com.google.appengine.api.files.FileServiceFactory;
+import com.google.appengine.api.files.FileWriteChannel;
 
 @SuppressWarnings("serial")
 public class JSONDatastoreServlet extends HttpServlet {
 	public static DatastoreService store
 		= DatastoreServiceFactory.getDatastoreService();
+	public static FileService fileService = FileServiceFactory.getFileService();
 	
 	public static Token token;
 	
@@ -341,6 +348,38 @@ public class JSONDatastoreServlet extends HttpServlet {
 				store.put(e);
 			}
 			result(resp, e);
+			return;
+		}else if(path.equals("/put")){
+			String contentType = req.getParameter("contentType");
+			String filename = req.getParameter("key");
+			
+			if(filename == null){
+				filename = Hex.long2hex(System.currentTimeMillis()) + Hex.double2hex(Math.random());
+			}
+			
+			AppEngineFile file = fileService.createNewBlobFile(contentType,filename);
+			boolean lock = false;
+			FileWriteChannel writeChannel = fileService.openWriteChannel(file, lock);
+			
+			OutputStream out = Channels.newOutputStream(writeChannel);
+			Stream.copy(req.getInputStream(), out);
+			writeChannel.closeFinally();
+			
+			
+			try {
+				JSONObject successSet = new JSONObject();
+				successSet.put("status", "success");
+				successSet.put("contentType", contentType);
+				successSet.put("key", filename);
+
+				Writer w = resp.getWriter();
+				w.append(successSet.toString());
+				w.flush();
+				w.close();
+				return;
+			} catch (JSONException e) {
+				
+			}
 		}
 		resp.setStatus(404);
 	}
