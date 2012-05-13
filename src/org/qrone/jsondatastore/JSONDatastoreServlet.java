@@ -1,6 +1,7 @@
 package org.qrone.jsondatastore;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Writer;
 import java.nio.channels.Channels;
@@ -16,6 +17,9 @@ import org.qrone.util.Hex;
 import org.qrone.util.Stream;
 import org.qrone.util.Token;
 
+import com.google.appengine.api.blobstore.BlobKey;
+import com.google.appengine.api.blobstore.BlobstoreService;
+import com.google.appengine.api.blobstore.BlobstoreServiceFactory;
 import com.google.appengine.api.datastore.DatastoreService;
 import com.google.appengine.api.datastore.DatastoreServiceFactory;
 import com.google.appengine.api.datastore.Entity;
@@ -28,6 +32,7 @@ import com.google.appengine.api.datastore.QueryResultIterator;
 import com.google.appengine.api.datastore.Query.FilterOperator;
 import com.google.appengine.api.datastore.QueryResultIterable;
 import com.google.appengine.api.files.AppEngineFile;
+import com.google.appengine.api.files.FileReadChannel;
 import com.google.appengine.api.files.FileService;
 import com.google.appengine.api.files.FileServiceFactory;
 import com.google.appengine.api.files.FileWriteChannel;
@@ -37,6 +42,7 @@ public class JSONDatastoreServlet extends HttpServlet {
 	public static DatastoreService store
 		= DatastoreServiceFactory.getDatastoreService();
 	public static FileService fileService = FileServiceFactory.getFileService();
+	private static BlobstoreService blobService = BlobstoreServiceFactory.getBlobstoreService();
 	
 	public static Token token;
 	
@@ -130,10 +136,9 @@ public class JSONDatastoreServlet extends HttpServlet {
 		}
 	}
 	
-	private Entity fromJSONtoEntity(String kind, String name, String data){
-		if(data == null) return null;
+	private Entity fromJSONtoEntity(String kind, String name, JSONObject json){
+		if(json == null) return null;
 		try {
-			JSONObject json = new JSONObject(data);
 			Entity e;
 			if(json.has("id")){
 				e = new Entity(kind, json.getString("id"));
@@ -196,10 +201,18 @@ public class JSONDatastoreServlet extends HttpServlet {
 				q.addFilter(key, FilterOperator.EQUAL, (String)e.getValue());
 			}
 		}
+		String order = params.get(".order").toString();
+		if(order != null){
+			if(order.startsWith("-")){
+				q.addSort(order.substring(1), Query.SortDirection.DESCENDING);
+			}else{
+				q.addSort(order, Query.SortDirection.ASCENDING);
+			}
+		}
 		return store.prepare(q);
 	}
 	
-	private void result(HttpServletResponse resp, Object result) throws IOException{
+	private void result(HttpServletResponse resp, Object result, int length) throws IOException{
 		try {
 			JSONObject successSet = new JSONObject();
 			successSet.put("status", "success");
@@ -217,7 +230,9 @@ public class JSONDatastoreServlet extends HttpServlet {
 			}else if(result instanceof QueryResultIterator){
 				JSONArray json = new JSONArray();
 				QueryResultIterator iter = (QueryResultIterator)result;
-				while(iter.hasNext()){
+				int c = 0;
+				while(iter.hasNext() && ( length < 0 || c < length) ){
+					c++;
 					JSONObject j = fromEntityToJSON((Entity)iter.next());
 					if(j != null)
 						json.put(j);
@@ -275,6 +290,41 @@ public class JSONDatastoreServlet extends HttpServlet {
 				resp.setStatus(500);
 			}
 			return;
+		}else if(path.startsWith("/down/")){
+			String key = path.substring("/down/".length());
+			blobService.serve(new BlobKey(key), resp);
+			return;
+		}else if(path.startsWith("/delete/")){
+			String key = path.substring("/delete/".length());
+			blobService.delete(new BlobKey(key));
+
+			try {
+				JSONObject successSet = new JSONObject();
+				successSet.put("status", "success");
+				successSet.put("key", key);
+				
+				Writer w = resp.getWriter();
+				w.append(successSet.toString());
+				w.flush();
+				w.close();
+			} catch (JSONException e) {
+				resp.setStatus(500);
+			}
+			
+			return;
+		}else if(path.equals("/status")){
+			try {
+				JSONObject successSet = new JSONObject();
+				successSet.put("status", "OK");
+				
+				Writer w = resp.getWriter();
+				w.append(successSet.toString());
+				w.flush();
+				w.close();
+			} catch (JSONException e) {
+				resp.setStatus(500);
+			}
+			return;
 		}
 		
 		
@@ -291,32 +341,37 @@ public class JSONDatastoreServlet extends HttpServlet {
 		if(path.equals("/get")){
 			Key key = KeyFactory.stringToKey(req.getParameter("id"));
 			try {
-				result(resp, store.get(key));
+				result(resp, store.get(key), 0);
 			} catch (EntityNotFoundException e) {
-				result(resp, null);
+				result(resp, null, 0);
 			}
 			return;
 			
 		}else if(path.equals("/list")){
 			PreparedQuery pq = getQueryFromParams(kind, req.getParameterMap());
 			QueryResultIterator<Entity> iter = pq.asQueryResultIterator();
-			result(resp, iter);
+			String l = req.getParameter(".length");
+			int c = -1;
+			if(l != null){
+				c = Integer.parseInt(l);
+			}
+			result(resp, iter, c);
 			return;
 		}else if(path.equals("/add")){
 			Entity e = fromParamsToEntity(kind, auth.getId(), req.getParameterMap());
 			if(e != null){
 				store.put(e);
 			}
-			result(resp, e);
+			result(resp, e, 0);
 			return;
 		}else if(path.equals("/remove")){
 			Key key = KeyFactory.stringToKey(req.getParameter("id"));
 			try {
 				Entity e = store.get(key);
 				store.delete(key);
-				result(resp, e);
+				result(resp, e, 0);
 			} catch (EntityNotFoundException e) {
-				result(resp, null);
+				result(resp, null, 0);
 			}
 			return;
 		}
@@ -342,19 +397,30 @@ public class JSONDatastoreServlet extends HttpServlet {
 		path = path.substring(idx);
 		
 		if(path.equals("/add")){
-			String content = new String(Stream.read(req.getInputStream()));
-			Entity e = fromJSONtoEntity(kind, auth.getId(), content);
-			if(e != null){
-				store.put(e);
+			try {
+				String content = new String(Stream.read(req.getInputStream()));
+				JSONArray array = new JSONArray(content);
+				for (int i = 0; i < array.length(); i++) {
+					Entity e = fromJSONtoEntity(kind, auth.getId(), array.getJSONObject(i));
+					if(e != null){
+						store.put(e);
+					}
+				}
+				result(resp, array, 0);
+				return;
+			} catch (JSONException e) {
+				
 			}
-			result(resp, e);
-			return;
-		}else if(path.equals("/put")){
-			String contentType = req.getParameter("contentType");
-			String filename = req.getParameter("key");
+		}else if(path.equals("/up")){
+			String contentType = req.getParameter("contenttype");
+			String filename = req.getParameter("filename");
+
+			if(contentType == null){
+				contentType = "text/plain";
+			}
 			
 			if(filename == null){
-				filename = Hex.long2hex(System.currentTimeMillis()) + Hex.double2hex(Math.random());
+				filename = "untitled";
 			}
 			
 			AppEngineFile file = fileService.createNewBlobFile(contentType,filename);
@@ -365,12 +431,14 @@ public class JSONDatastoreServlet extends HttpServlet {
 			Stream.copy(req.getInputStream(), out);
 			writeChannel.closeFinally();
 			
+			BlobKey key = fileService.getBlobKey(file);
 			
 			try {
 				JSONObject successSet = new JSONObject();
 				successSet.put("status", "success");
 				successSet.put("contentType", contentType);
-				successSet.put("key", filename);
+				successSet.put("filename", filename);
+				successSet.put("key", key.getKeyString());
 
 				Writer w = resp.getWriter();
 				w.append(successSet.toString());

@@ -18,6 +18,13 @@
     </dependency>
   </dependencies>
   
+  <repositories>
+     <repository>
+        <id>qrone</id>
+        <url>http://mvn.qrone.org/</url>
+    </repository>
+  </repositories>
+  
   <distributionManagement>
     <repository>
       <id>qrone</id>
